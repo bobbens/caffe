@@ -373,7 +373,6 @@ void DataTransformer<Dtype>::Transform(Blob<Dtype>* input_blob,
   CHECK_GE(input_height, height);
   CHECK_GE(input_width, width);
 
-
   const Dtype scale = param_.scale();
   const bool do_mirror = param_.mirror() && Rand(2);
   const bool has_mean_file = param_.has_mean_file();
@@ -524,8 +523,8 @@ vector<int> DataTransformer<Dtype>::InferBlobShape(const cv::Mat& cv_img) {
   vector<int> shape(4);
   shape[0] = 1;
   shape[1] = img_channels;
-  shape[2] = (crop_h)? crop_w: img_height;
-  shape[3] = (crop_h)? crop_w: img_width;
+  shape[2] = (crop_h) ? crop_h: img_height;
+  shape[3] = (crop_w) ? crop_w: img_width;
   return shape;
 }
 
