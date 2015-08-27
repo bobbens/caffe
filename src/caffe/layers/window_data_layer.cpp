@@ -65,7 +65,7 @@ void WindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
 
   const bool prefetch_needs_rand =
       this->transform_param_.mirror() ||
-      this->transform_param_.crop_size();
+      (this->transform_param_.crop_size() || this->transform_param_.crop_w() || this->transform_param_.crop_h());
   if (prefetch_needs_rand) {
     const unsigned int prefetch_rng_seed = caffe_rng_rand();
     prefetch_rng_.reset(new Caffe::RNG(prefetch_rng_seed));
@@ -168,12 +168,18 @@ void WindowDataLayer<Dtype>::DataLayerSetUp(const vector<Blob<Dtype>*>& bottom,
 
   // image
   const int crop_size = this->transform_param_.crop_size();
-  CHECK_GT(crop_size, 0);
+  int crop_h = this->transform_param_.crop_h();
+  int crop_w = this->transform_param_.crop_w();
+  if (crop_size) {
+    crop_w = crop_h = crop_size;
+  }
+  CHECK_GT(crop_w, 0);
+  CHECK_GT(crop_h, 0);
   const int batch_size = this->layer_param_.window_data_param().batch_size();
-  top[0]->Reshape(batch_size, channels, crop_size, crop_size);
+  top[0]->Reshape(batch_size, channels, crop_h, crop_w);
   for (int i = 0; i < this->PREFETCH_COUNT; ++i)
     this->prefetch_[i].data_.Reshape(
-        batch_size, channels, crop_size, crop_size);
+        batch_size, channels, crop_h, crop_w);
 
   LOG(INFO) << "output data size: " << top[0]->num() << ","
       << top[0]->channels() << "," << top[0]->height() << ","
@@ -237,20 +243,27 @@ void WindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
   const int batch_size = this->layer_param_.window_data_param().batch_size();
   const int context_pad = this->layer_param_.window_data_param().context_pad();
   const int crop_size = this->transform_param_.crop_size();
+  int crop_h = this->transform_param_.crop_h();
+  int crop_w = this->transform_param_.crop_w();
+  if (crop_size) {
+    crop_w = crop_h = crop_size;
+  }
   const bool mirror = this->transform_param_.mirror();
   const float fg_fraction =
       this->layer_param_.window_data_param().fg_fraction();
   Dtype* mean = NULL;
-  int mean_off = 0;
+  int mean_off_w = 0;
+  int mean_off_h = 0;
   int mean_width = 0;
   int mean_height = 0;
   if (this->has_mean_file_) {
     mean = this->data_mean_.mutable_cpu_data();
-    mean_off = (this->data_mean_.width() - crop_size) / 2;
+    mean_off_w = (this->data_mean_.width() - crop_w) / 2;
+    mean_off_h = (this->data_mean_.height() - crop_h) / 2;
     mean_width = this->data_mean_.width();
     mean_height = this->data_mean_.height();
   }
-  cv::Size cv_crop_size(crop_size, crop_size);
+  cv::Size cv_crop_size(crop_w, crop_h);
   const string& crop_mode = this->layer_param_.window_data_param().crop_mode();
 
   bool use_square = (crop_mode == "square") ? true : false;
@@ -352,9 +365,9 @@ void WindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
         // scale factors that would be used to warp the unclipped
         // expanded region
         Dtype scale_x =
-            static_cast<Dtype>(crop_size)/static_cast<Dtype>(unclipped_width);
+            static_cast<Dtype>(crop_w)/static_cast<Dtype>(unclipped_width);
         Dtype scale_y =
-            static_cast<Dtype>(crop_size)/static_cast<Dtype>(unclipped_height);
+            static_cast<Dtype>(crop_h)/static_cast<Dtype>(unclipped_height);
 
         // size to warp the clipped expanded region to
         cv_crop_size.width =
@@ -376,11 +389,11 @@ void WindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
 
         // ensure that the warped, clipped region plus the padding fits in the
         // crop_size x crop_size image (it might not due to rounding)
-        if (pad_h + cv_crop_size.height > crop_size) {
-          cv_crop_size.height = crop_size - pad_h;
+        if (pad_h + cv_crop_size.height > crop_h) {
+          cv_crop_size.height = crop_h - pad_h;
         }
-        if (pad_w + cv_crop_size.width > crop_size) {
-          cv_crop_size.width = crop_size - pad_w;
+        if (pad_w + cv_crop_size.width > crop_w) {
+          cv_crop_size.width = crop_w - pad_w;
         }
       }
 
@@ -400,13 +413,13 @@ void WindowDataLayer<Dtype>::load_batch(Batch<Dtype>* batch) {
         int img_index = 0;
         for (int w = 0; w < cv_cropped_img.cols; ++w) {
           for (int c = 0; c < channels; ++c) {
-            int top_index = ((item_id * channels + c) * crop_size + h + pad_h)
-                     * crop_size + w + pad_w;
+            int top_index = ((item_id * channels + c) * crop_h + h + pad_h)
+                     * crop_w + w + pad_w;
             // int top_index = (c * height + h) * width + w;
             Dtype pixel = static_cast<Dtype>(ptr[img_index++]);
             if (this->has_mean_file_) {
-              int mean_index = (c * mean_height + h + mean_off + pad_h)
-                           * mean_width + w + mean_off + pad_w;
+              int mean_index = (c * mean_height + h + mean_off_h + pad_h)
+                           * mean_width + w + mean_off_w + pad_w;
               top_data[top_index] = (pixel - mean[mean_index]) * scale;
             } else {
               if (this->has_mean_values_) {
